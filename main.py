@@ -15,6 +15,8 @@ from tkinter import simpledialog
 from tkinter import messagebox
 import numpy as np
 import math
+from matplotlib import pyplot as plt
+import mediapipe as mp
 #################################################################################################
 
 def main():
