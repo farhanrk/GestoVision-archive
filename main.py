@@ -28,7 +28,9 @@ def main():
         if not success:
             break
         cv2.imshow("Image", img)
-        cv2.waitKey(30)
+        key_press = cv2.waitKey(30)
+        if not key_press == -1:
+            break
     cap.release()
     cv2.destroyAllWindows()
 
