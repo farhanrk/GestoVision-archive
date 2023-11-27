@@ -7,103 +7,109 @@
 ##  Student ID          : 202023149
 ##  Name                : Farhan Rahman Khan
 ##  Student ID          : 202124798
+##
 #####################################||IMPORTING LIBRARIES||#####################################
 import cv2
-import tkinter as tk
-from tkinter import filedialog
-from tkinter import simpledialog
-from tkinter import messagebox
 import numpy as np
-import math
-from matplotlib import pyplot as plt
 import mediapipe as mp
+import pickle
 
 
+############################################||NOTES||############################################
+##
+##       main.py is handling the video feed and using the model to determine the alphabets
+##
+##  Steps:
+##      0. Train a model with data and save it (not in this code)
+##      1. Image Processing
+##      2. Getting the video feed
+##      3. Creating landmark coordinates for the hand in the feed with mediaPipe
+##              model.pickle has been trained from a opensourse database on kaggle
+##                                   _||_
+##                                   \  /
+##                                    \/
+##      4. Using previously trained model to determine hand gesture
+##      5. Displaying the determined gesture on the feed
+##
 #################################################################################################
 
 def main():
+    # Load the model first
+    model = pickle.load(open("model.pickle", "rb"))
+
+    # Setup media pipe
     mp_hands = mp.solutions.hands
     mp_drawing = mp.solutions.drawing_utils
-    # Initialize MediaPipe Hands
-    hands = mp_hands.Hands()
+    # mp_drawing_styles = mp.solutions.drawing_styles
+
     # Initialize media capture
     cap = cv2.VideoCapture(0)
-    while True:
-        # Get frame
-        success, img = cap.read()
-        if not success:
-            break
-        # img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # # Image processing
-        # imgHeight = img.shape[0]
-        # imgWidth = img.shape[1]
-        # #Padding the image 
-        # #creating a new image with an additional border of 1
-        # paddedImg = np.zeros((imgHeight+2, imgWidth+2), dtype=np.uint8)
-        # #Copying the original image to the center of the new image
-        # for x in range(imgWidth):
-        #     for y in range(imgHeight):
-        #         paddedImg[y + 1][x + 1] = img[y][x]
+    with mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.35,
+                        min_tracking_confidence=0.35) as hands:
+        while cap.isOpened():
+            # Get frame
+            success, img = cap.read()
+            kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+            img = cv2.filter2D(img, -1, kernel)
+            if not success:
+                print("Ignoring empty camera frame")
+                continue
 
-        # #creating a canvas for the blurred image
-        # blurred = np.zeros((imgHeight+2, imgWidth+2), dtype=np.uint8)
-        # #Using a 3x3 averaging mask to blur the image
-        # blurrer = np.ones((3, 3), np.float32) / 9
-        # for x in range(1, paddedImg.shape[1] - 1):
-        #     for y in range(1, paddedImg.shape[0] - 1):
-        #         sum = 0
-        #         for i in [-1,0,1]:
-        #             for j in [-1,0,1]:
-        #                 sum += blurrer[j + 1][i + 1] * paddedImg[y + j][x + i]
-        #         blurred[y][x] = sum
+            # Abiding by OpenCV's whims
+            img.flags.writeable = False
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            # Process the image and get hand landmarks
+            results = hands.process(img)
 
-        # #Removing the padding
-        # blurr = np.zeros((imgHeight, imgWidth), dtype=np.uint8)
-        # for x in range(imgWidth):
-        #     for y in range(imgHeight):
-        #         blurr[y][x] = blurred[y+1][x+1]
+            curr_landmark_coord = []
+            xList = []
+            yList = []
+            # Draw landmarks on the image
+            img.flags.writeable = True
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            if results.multi_hand_landmarks:
+                for landmarks in results.multi_hand_landmarks:
+                    mp_drawing.draw_landmarks(img,
+                                              landmarks,
+                                              mp_hands.HAND_CONNECTIONS)
+                for hand_landmarks in results.multi_hand_landmarks:
+                    for i in range(len(hand_landmarks.landmark)):
+                        x = hand_landmarks.landmark[i].x
+                        y = hand_landmarks.landmark[i].y
+                        xList.append(x)
+                        yList.append(y)
 
-        # #Calculating the mask
-        # mask = np.subtract(img,blurr,dtype=np.longlong)
-        # #Ensuring the pixel values are in the [0, 255] range
-        # for y in range(imgHeight):
-        #     for x in range(imgWidth):
-        #         if mask[y][x] < 0:
-        #             mask[y][x] = 0
-        #         elif mask[y][x] > 255:
-        #             mask[y][x] = 255
+                    for i in range(len(hand_landmarks.landmark)):
+                        x = hand_landmarks.landmark[i].x
+                        y = hand_landmarks.landmark[i].y
+                        curr_landmark_coord.append(x - min(xList))
+                        curr_landmark_coord.append(y - min(yList))
 
-        # #Sharpening the image by adding the mask
-        # sharpImg = np.add(img,mask,dtype=np.longlong)
-        # #Ensuring the pixel values are in the [0, 255] range
-        # for y in range(imgHeight):
-        #     for x in range(imgWidth):
-        #         if sharpImg[y][x] < 0:
-        #             sharpImg[y][x] = 0
-        #         elif sharpImg[y][x] > 255:
-        #             sharpImg[y][x] = 255
+                # Rectangle bounds for the hand
+                x1 = int(min(xList) * img.shape[1]) - 10
+                y1 = int(min(yList) * img.shape[0]) - 10
+                x2 = int(max(xList) * img.shape[1]) - 10
+                y2 = int(max(yList) * img.shape[0]) - 10
 
-        # sharpImg = sharpImg.astype(np.uint8)
+                prediction = model.predict([np.asarray(curr_landmark_coord)])
+                predicted_character = prediction[0]
+                accuracy = model.predict_proba([np.asarray(curr_landmark_coord)])
 
-        # Apply sharpening with kernal for rgb
-        kernel = np.array([[-1, -1, -1],
-                        [-1,  9, -1],
-                        [-1, -1, -1]])
-        sharpImg = cv2.filter2D(img, -1, kernel)
+                # Draw rectangle and put alphabet with accuracy
+                cv2.rectangle(img, (x1, y1), (x2, y2), (255, 0, 255), 2)
+                cv2.putText(img, predicted_character, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2,
+                            cv2.LINE_AA)
+                cv2.putText(img, "%.2f%%" % (np.max(accuracy) * 100), (x1 + 30, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1,
+                            (255, 0, 200), 2,
+                            cv2.LINE_AA)
 
-        # Process the image and get hand landmarks
-        results = hands.process(sharpImg)
+            # Displaying the video by frame
+            cv2.imshow("Press ESC to exit", img)
 
-        # Draw landmarks on the image
-        if results.multi_hand_landmarks:
-            for landmarks in results.multi_hand_landmarks:
-                mp_drawing.draw_landmarks(img, landmarks, mp_hands.HAND_CONNECTIONS)
-
-        # Displaying the video by frame
-        cv2.imshow("Image", img)
-        key_press = cv2.waitKey(100)
-        if not key_press == -1:
-            break
+            # Exit on ESC
+            key_press = cv2.waitKey(1)
+            if key_press == 27:
+                break
     cap.release()
     cv2.destroyAllWindows()
 
